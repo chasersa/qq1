@@ -48,13 +48,23 @@ public class LoginWindow extends JFrame {
                 JOptionPane.showMessageDialog(this, "ID和密码不能为空！");
                 return;
             }
+            
+            // 禁用按钮防止重复点击
+            loginButton.setEnabled(false);
+            
             try {
                 if (!client.isConnected()) {
                     client.connect();
+                    // 等待一小段时间确保连接建立
+                    Thread.sleep(100);
                 }
                 client.sendMessage(new Message(MessageType.LOGIN, id, "Server", id + "," + password));
             } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "连接服务器失败: " + ex.getMessage());
+                JOptionPane.showMessageDialog(this, "连接服务器失败，请确保服务器已启动: " + ex.getMessage());
+                loginButton.setEnabled(true);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                loginButton.setEnabled(true);
             }
         });
 
@@ -68,20 +78,19 @@ public class LoginWindow extends JFrame {
         passwordField.addActionListener(e -> loginButton.doClick());
 
         client.setMessageListener(message -> {
-            if (message.getType() == MessageType.LOGIN_SUCCESS) {
-                User loggedInUser = new User(message.getReceiverId(), message.getContent(), "");
-                loggedInUser.setOnline(true);
-                client.setCurrentUser(loggedInUser);
-                SwingUtilities.invokeLater(() -> {
+            SwingUtilities.invokeLater(() -> {
+                if (message.getType() == MessageType.LOGIN_SUCCESS) {
+                    User loggedInUser = new User(message.getReceiverId(), message.getContent(), "");
+                    loggedInUser.setOnline(true);
+                    client.setCurrentUser(loggedInUser);
                     ChatWindow chatWindow = new ChatWindow(client);
                     chatWindow.setVisible(true);
                     this.dispose();
-                });
-            } else if (message.getType() == MessageType.LOGIN_FAIL) {
-                SwingUtilities.invokeLater(() -> {
+                } else if (message.getType() == MessageType.LOGIN_FAIL) {
                     JOptionPane.showMessageDialog(this, "登录失败: " + message.getContent());
-                });
-            }
+                    loginButton.setEnabled(true);
+                }
+            });
         });
     }
 

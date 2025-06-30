@@ -67,13 +67,22 @@ public class RegisterWindow extends JFrame {
                 return;
             }
 
+            // 禁用按钮防止重复点击
+            registerButton.setEnabled(false);
+            
             try {
                 if (!client.isConnected()) {
                     client.connect();
+                    // 等待一小段时间确保连接建立
+                    Thread.sleep(100);
                 }
                 client.sendMessage(new Message(MessageType.REGISTER, id, "Server", id + "," + username + "," + password));
             } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "连接服务器失败: " + ex.getMessage());
+                JOptionPane.showMessageDialog(this, "连接服务器失败，请确保服务器已启动: " + ex.getMessage());
+                registerButton.setEnabled(true);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                registerButton.setEnabled(true);
             }
         });
 
@@ -83,17 +92,16 @@ public class RegisterWindow extends JFrame {
         });
 
         client.setMessageListener(message -> {
-            if (message.getType() == MessageType.REGISTER_SUCCESS) {
-                SwingUtilities.invokeLater(() -> {
+            SwingUtilities.invokeLater(() -> {
+                if (message.getType() == MessageType.REGISTER_SUCCESS) {
                     JOptionPane.showMessageDialog(this, "注册成功！请登录。");
                     loginWindow.setVisible(true);
                     this.dispose();
-                });
-            } else if (message.getType() == MessageType.REGISTER_FAIL) {
-                SwingUtilities.invokeLater(() -> {
+                } else if (message.getType() == MessageType.REGISTER_FAIL) {
                     JOptionPane.showMessageDialog(this, "注册失败: " + message.getContent());
-                });
-            }
+                    registerButton.setEnabled(true);
+                }
+            });
         });
     }
 }

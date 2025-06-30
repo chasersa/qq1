@@ -21,8 +21,11 @@ public class ClientHandler extends Thread {
         this.server = server;
         try {
             oos = new ObjectOutputStream(socket.getOutputStream());
+            oos.flush(); // 确保输出流被正确初始化
             ois = new ObjectInputStream(socket.getInputStream());
+            System.out.println("Client handler initialized for: " + socket.getInetAddress());
         } catch (IOException e) {
+            System.err.println("Error initializing client handler: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -34,7 +37,7 @@ public class ClientHandler extends Thread {
     @Override
     public void run() {
         try {
-            while (true) {
+            while (!socket.isClosed()) {
                 Message message = (Message) ois.readObject();
                 System.out.println("Received message from client: " + message);
 
@@ -53,50 +56,72 @@ public class ClientHandler extends Thread {
                 }
             }
         } catch (IOException | ClassNotFoundException e) {
-            System.out.println("Client " + userId + " disconnected.");
-            if (userId != null) {
-                server.removeClient(userId);
-            }
+            System.out.println("Client " + (userId != null ? userId : "unknown") + " disconnected: " + e.getMessage());
         } finally {
-            try {
-                if (ois != null) ois.close();
-                if (oos != null) oos.close();
-                if (socket != null) socket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            cleanup();
         }
     }
 
-    private void handleLogin(Message message) throws IOException {
-        String[] credentials = message.getContent().split(",");
-        String id = credentials[0];
-        String password = credentials[1];
-        User user = server.getUserManager().login(id, password);
+    private void cleanup() {
+        if (userId != null) {
+            server.removeClient(userId);
+        }
+        try {
+            if (ois != null) ois.close();
+            if (oos != null) oos.close();
+            if (socket != null && !socket.isClosed()) socket.close();
+        } catch (IOException e) {
+            System.err.println("Error during cleanup: " + e.getMessage());
+        }
+    }
 
-        if (user != null) {
-            if (server.getOnlineClients().containsKey(id)) {
-                sendMessage(new Message(MessageType.LOGIN_FAIL, "Server", id, "User already online."));
+    private void handleLogin(Message message) {
+        try {
+            String[] credentials = message.getContent().split(",");
+            if (credentials.length != 2) {
+                sendMessage(new Message(MessageType.LOGIN_FAIL, "Server", message.getSenderId(), "Invalid credentials format."));
                 return;
             }
-            this.userId = id;
-            server.addOnlineClient(id, this);
-            sendMessage(new Message(MessageType.LOGIN_SUCCESS, "Server", id, user.getUsername()));
-        } else {
-            sendMessage(new Message(MessageType.LOGIN_FAIL, "Server", id, "Invalid ID or password."));
+            
+            String id = credentials[0];
+            String password = credentials[1];
+            User user = server.getUserManager().login(id, password);
+
+            if (user != null) {
+                if (server.getOnlineClients().containsKey(id)) {
+                    sendMessage(new Message(MessageType.LOGIN_FAIL, "Server", id, "User already online."));
+                    return;
+                }
+                this.userId = id;
+                server.addOnlineClient(id, this);
+                sendMessage(new Message(MessageType.LOGIN_SUCCESS, "Server", id, user.getUsername()));
+            } else {
+                sendMessage(new Message(MessageType.LOGIN_FAIL, "Server", message.getSenderId(), "Invalid ID or password."));
+            }
+        } catch (IOException e) {
+            System.err.println("Error handling login: " + e.getMessage());
         }
     }
 
-    private void handleRegister(Message message) throws IOException {
-        String[] userInfo = message.getContent().split(",");
-        String id = userInfo[0];
-        String username = userInfo[1];
-        String password = userInfo[2];
+    private void handleRegister(Message message) {
+        try {
+            String[] userInfo = message.getContent().split(",");
+            if (userInfo.length != 3) {
+                sendMessage(new Message(MessageType.REGISTER_FAIL, "Server", message.getSenderId(), "Invalid registration format."));
+                return;
+            }
+            
+            String id = userInfo[0];
+            String username = userInfo[1];
+            String password = userInfo[2];
 
-        if (server.getUserManager().registerUser(id, username, password)) {
-            sendMessage(new Message(MessageType.REGISTER_SUCCESS, "Server", id, "Registration successful."));
-        } else {
-            sendMessage(new Message(MessageType.REGISTER_FAIL, "Server", id, "ID already exists."));
+            if (server.getUserManager().registerUser(id, username, password)) {
+                sendMessage(new Message(MessageType.REGISTER_SUCCESS, "Server", id, "Registration successful."));
+            } else {
+                sendMessage(new Message(MessageType.REGISTER_FAIL, "Server", id, "ID already exists."));
+            }
+        } catch (IOException e) {
+            System.err.println("Error handling registration: " + e.getMessage());
         }
     }
 
@@ -114,7 +139,9 @@ public class ClientHandler extends Thread {
     }
 
     public void sendMessage(Message message) throws IOException {
-        oos.writeObject(message);
-        oos.flush();
+        if (oos != null && !socket.isClosed()) {
+            oos.writeObject(message);
+            oos.flush();
+        }
     }
 }

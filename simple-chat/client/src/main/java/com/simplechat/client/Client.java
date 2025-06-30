@@ -18,46 +18,65 @@ public class Client {
     private ObjectInputStream ois;
     private User currentUser;
     private Consumer<Message> messageListener;
+    private boolean isConnected = false;
 
     public Client() {
     }
 
     public void connect() throws IOException {
-        socket = new Socket(SERVER_IP, SERVER_PORT);
-        oos = new ObjectOutputStream(socket.getOutputStream());
-        ois = new ObjectInputStream(socket.getInputStream());
+        try {
+            socket = new Socket(SERVER_IP, SERVER_PORT);
+            oos = new ObjectOutputStream(socket.getOutputStream());
+            ois = new ObjectInputStream(socket.getInputStream());
+            isConnected = true;
+            
+            System.out.println("Connected to server successfully");
 
-        new Thread(() -> {
-            try {
-                while (true) {
-                    Message message = (Message) ois.readObject();
-                    System.out.println("Client received: " + message);
-                    if (messageListener != null) {
-                        messageListener.accept(message);
+            new Thread(() -> {
+                try {
+                    while (isConnected && !socket.isClosed()) {
+                        Message message = (Message) ois.readObject();
+                        System.out.println("Client received: " + message);
+                        if (messageListener != null) {
+                            messageListener.accept(message);
+                        }
                     }
+                } catch (IOException | ClassNotFoundException e) {
+                    if (isConnected) {
+                        System.out.println("Server disconnected or error: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                    disconnect();
                 }
-            } catch (IOException | ClassNotFoundException e) {
-                System.out.println("Server disconnected or error: " + e.getMessage());
-                disconnect();
-            }
-        }).start();
+            }).start();
+        } catch (IOException e) {
+            System.err.println("Failed to connect to server: " + e.getMessage());
+            throw e;
+        }
     }
 
     public void disconnect() {
+        isConnected = false;
         try {
-            if (socket != null) socket.close();
-            if (ois != null) ois.close();
             if (oos != null) oos.close();
+            if (ois != null) ois.close();
+            if (socket != null) socket.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
     public void sendMessage(Message message) {
+        if (!isConnected || socket == null || socket.isClosed()) {
+            System.err.println("Not connected to server. Cannot send message.");
+            return;
+        }
+        
         try {
             oos.writeObject(message);
             oos.flush();
         } catch (IOException e) {
+            System.err.println("Error sending message: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -75,6 +94,6 @@ public class Client {
     }
 
     public boolean isConnected() {
-        return socket != null && !socket.isClosed();
+        return isConnected && socket != null && !socket.isClosed();
     }
 }
