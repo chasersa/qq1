@@ -13,6 +13,7 @@ public class Server {
     private static final int PORT = 8888;
     private UserManager userManager;
     private Map<String, ClientHandler> onlineClients;
+    private boolean isRunning = false;
 
     public Server() {
         userManager = new UserManager();
@@ -42,22 +43,30 @@ public class Server {
     }
 
     public synchronized void removeClient(String userId) {
-        onlineClients.remove(userId);
-        System.out.println("User " + userId + " left the chat room. Total online: " + onlineClients.size());
-        
-        // 通知所有用户有用户离开
-        broadcastMessage(new Message(MessageType.USER_LEAVE, "Server", "ALL", userId + " left the chat room"));
-        
-        // 通知所有用户更新用户列表
-        broadcastUserList();
+        if (userId != null) {
+            onlineClients.remove(userId);
+            System.out.println("User " + userId + " left the chat room. Total online: " + onlineClients.size());
+            
+            // 通知所有用户有用户离开
+            broadcastMessage(new Message(MessageType.USER_LEAVE, "Server", "ALL", userId + " left the chat room"));
+            
+            // 通知所有用户更新用户列表
+            broadcastUserList();
+        }
     }
 
     public void broadcastMessage(Message message) {
         for (ClientHandler handler : onlineClients.values()) {
             try {
-                handler.sendMessage(message);
+                if (handler != null) {
+                    handler.sendMessage(message);
+                }
             } catch (IOException e) {
                 System.err.println("Error broadcasting message: " + e.getMessage());
+                // 移除无效的连接
+                if (handler.getUserId() != null) {
+                    onlineClients.remove(handler.getUserId());
+                }
             }
         }
     }
@@ -85,27 +94,62 @@ public class Server {
         }
         
         try {
-            handler.sendMessage(new Message(MessageType.USER_LIST, "Server", handler.getUserId(), userList.toString()));
+            if (handler != null && handler.getUserId() != null) {
+                handler.sendMessage(new Message(MessageType.USER_LIST, "Server", handler.getUserId(), userList.toString()));
+            }
         } catch (IOException e) {
             System.err.println("Error sending user list: " + e.getMessage());
         }
     }
 
     public void start() {
-        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
-            System.out.println("Chat Server started on port " + PORT);
-            while (true) {
-                Socket clientSocket = serverSocket.accept();
-                System.out.println("New client connected: " + clientSocket.getInetAddress().getHostAddress());
-                new ClientHandler(clientSocket, this).start();
+        ServerSocket serverSocket = null;
+        try {
+            serverSocket = new ServerSocket(PORT);
+            isRunning = true;
+            System.out.println("Chat Server started successfully on port " + PORT);
+            System.out.println("Waiting for client connections...");
+            
+            while (isRunning) {
+                try {
+                    Socket clientSocket = serverSocket.accept();
+                    System.out.println("New client connected from: " + clientSocket.getInetAddress().getHostAddress());
+                    ClientHandler handler = new ClientHandler(clientSocket, this);
+                    handler.start();
+                } catch (IOException e) {
+                    if (isRunning) {
+                        System.err.println("Error accepting client connection: " + e.getMessage());
+                    }
+                }
             }
         } catch (IOException e) {
+            System.err.println("Failed to start server on port " + PORT + ": " + e.getMessage());
             e.printStackTrace();
+        } finally {
+            if (serverSocket != null && !serverSocket.isClosed()) {
+                try {
+                    serverSocket.close();
+                } catch (IOException e) {
+                    System.err.println("Error closing server socket: " + e.getMessage());
+                }
+            }
         }
     }
 
+    public void stop() {
+        isRunning = false;
+    }
+
     public static void main(String[] args) {
+        System.out.println("Starting Chat Server...");
         Server server = new Server();
+        
+        // 添加关闭钩子
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("Shutting down server...");
+            server.stop();
+        }));
+        
         server.start();
     }
 }
