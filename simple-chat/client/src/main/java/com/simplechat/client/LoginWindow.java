@@ -52,7 +52,7 @@ public class LoginWindow extends JFrame {
 
     private void setupEventHandlers() {
         loginButton.addActionListener(e -> performLogin());
-        passwordField.addActionListener(e -> performLogin()); // 回车键登录
+        passwordField.addActionListener(e -> performLogin());
         
         registerButton.addActionListener(e -> {
             RegisterWindow registerWindow = new RegisterWindow(client, this);
@@ -70,57 +70,23 @@ public class LoginWindow extends JFrame {
             return;
         }
         
-        // 禁用按钮防止重复点击
-        setButtonsEnabled(false);
-        
-        // 在后台线程中处理连接
-        SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
-            @Override
-            protected Void doInBackground() throws Exception {
-                try {
-                    if (!client.isConnected()) {
-                        System.out.println("Connecting to server...");
-                        client.connect();
-                        // 等待连接稳定
-                        Thread.sleep(500);
-                    }
-                    
-                    if (client.isConnected()) {
-                        System.out.println("Sending login request...");
-                        client.sendMessage(new Message(MessageType.LOGIN, id, "Server", id + "," + password));
-                    } else {
-                        throw new IOException("Failed to establish connection");
-                    }
-                } catch (Exception e) {
-                    throw e;
-                }
-                return null;
+        try {
+            if (!client.isConnected()) {
+                client.connect();
+                // 等待连接建立
+                Thread.sleep(100);
             }
             
-            @Override
-            protected void done() {
-                try {
-                    get(); // 检查是否有异常
-                } catch (Exception e) {
-                    SwingUtilities.invokeLater(() -> {
-                        String errorMsg = "连接服务器失败，请确保服务器已启动";
-                        if (e.getCause() instanceof IOException) {
-                            errorMsg += "\n详细信息: " + e.getCause().getMessage();
-                        }
-                        JOptionPane.showMessageDialog(LoginWindow.this, errorMsg, "连接错误", JOptionPane.ERROR_MESSAGE);
-                        setButtonsEnabled(true);
-                    });
-                }
+            if (client.isConnected()) {
+                client.sendMessage(new Message(MessageType.LOGIN, id, "Server", id + "," + password));
+            } else {
+                JOptionPane.showMessageDialog(this, "无法连接到服务器", "连接错误", JOptionPane.ERROR_MESSAGE);
             }
-        };
-        worker.execute();
-    }
-
-    private void setButtonsEnabled(boolean enabled) {
-        loginButton.setEnabled(enabled);
-        registerButton.setEnabled(enabled);
-        idField.setEnabled(enabled);
-        passwordField.setEnabled(enabled);
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "连接服务器失败: " + e.getMessage(), "连接错误", JOptionPane.ERROR_MESSAGE);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void handleMessage(Message message) {
@@ -139,11 +105,9 @@ public class LoginWindow extends JFrame {
                 case LOGIN_FAIL:
                     JOptionPane.showMessageDialog(this, "登录失败: " + message.getContent(), 
                         "登录失败", JOptionPane.ERROR_MESSAGE);
-                    setButtonsEnabled(true);
                     break;
                     
                 default:
-                    // 忽略其他消息类型
                     break;
             }
         });
@@ -157,7 +121,6 @@ public class LoginWindow extends JFrame {
                 e.printStackTrace();
             }
             
-            System.out.println("Starting Chat Client...");
             Client client = new Client();
             new LoginWindow(client).setVisible(true);
         });

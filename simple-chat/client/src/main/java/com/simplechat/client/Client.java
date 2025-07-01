@@ -20,42 +20,32 @@ public class Client {
     private User currentUser;
     private Consumer<Message> messageListener;
     private boolean isConnected = false;
-    private Thread readerThread;
 
     public Client() {
     }
 
     public void connect() throws IOException {
         try {
-            System.out.println("Attempting to connect to server at " + SERVER_IP + ":" + SERVER_PORT);
             socket = new Socket(SERVER_IP, SERVER_PORT);
-            socket.setKeepAlive(true);
-            socket.setSoTimeout(0); // 无超时
-            
             // 先创建输出流，再创建输入流
             oos = new ObjectOutputStream(socket.getOutputStream());
-            oos.flush(); // 确保输出流被正确初始化
+            oos.flush();
             ois = new ObjectInputStream(socket.getInputStream());
-            
             isConnected = true;
-            System.out.println("Connected to server successfully");
-
+            
             // 启动消息接收线程
-            readerThread = new Thread(() -> {
+            new Thread(() -> {
                 try {
-                    while (isConnected && !socket.isClosed() && socket.isConnected()) {
+                    while (isConnected && !socket.isClosed()) {
                         try {
-                            Object obj = ois.readObject();
-                            if (obj instanceof Message) {
-                                Message message = (Message) obj;
-                                System.out.println("Client received: " + message);
-                                if (messageListener != null) {
-                                    messageListener.accept(message);
-                                }
+                            Message message = (Message) ois.readObject();
+                            System.out.println("Client received: " + message);
+                            if (messageListener != null) {
+                                messageListener.accept(message);
                             }
                         } catch (SocketException e) {
                             if (isConnected) {
-                                System.out.println("Server disconnected (socket closed)");
+                                System.out.println("Server disconnected");
                             }
                             break;
                         } catch (IOException e) {
@@ -68,17 +58,11 @@ public class Client {
                         }
                     }
                 } finally {
-                    if (isConnected) {
-                        System.out.println("Message reader thread terminated");
-                        disconnect();
-                    }
+                    disconnect();
                 }
-            });
-            readerThread.setDaemon(true);
-            readerThread.start();
+            }).start();
             
         } catch (IOException e) {
-            System.err.println("Failed to connect to server: " + e.getMessage());
             isConnected = false;
             cleanup();
             throw e;
@@ -86,50 +70,31 @@ public class Client {
     }
 
     public void disconnect() {
-        System.out.println("Disconnecting from server...");
         isConnected = false;
         cleanup();
     }
 
     private void cleanup() {
         try {
-            if (oos != null) {
-                oos.close();
-                oos = null;
-            }
-            if (ois != null) {
-                ois.close();
-                ois = null;
-            }
-            if (socket != null && !socket.isClosed()) {
-                socket.close();
-                socket = null;
-            }
+            if (oos != null) oos.close();
+            if (ois != null) ois.close();
+            if (socket != null) socket.close();
         } catch (IOException e) {
             System.err.println("Error during cleanup: " + e.getMessage());
         }
-        
-        if (readerThread != null && readerThread.isAlive()) {
-            readerThread.interrupt();
-        }
-        
-        System.out.println("Client cleanup completed");
     }
 
     public void sendMessage(Message message) {
         if (!isConnected || socket == null || socket.isClosed()) {
-            System.err.println("Not connected to server. Cannot send message.");
+            System.err.println("Not connected to server");
             return;
         }
         
         try {
             oos.writeObject(message);
             oos.flush();
-            System.out.println("Sent message: " + message.getType());
         } catch (IOException e) {
             System.err.println("Error sending message: " + e.getMessage());
-            e.printStackTrace();
-            // 连接出错时断开连接
             disconnect();
         }
     }
@@ -147,6 +112,6 @@ public class Client {
     }
 
     public boolean isConnected() {
-        return isConnected && socket != null && !socket.isClosed() && socket.isConnected();
+        return isConnected && socket != null && !socket.isClosed();
     }
 }
